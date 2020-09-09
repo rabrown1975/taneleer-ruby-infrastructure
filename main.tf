@@ -125,6 +125,27 @@ resource "aws_security_group" "instance_security_group" {
     }
 }
 
+resource "aws_security_group" "elb_security_group" {
+    name = "${var.prefix}-elb-security-group"
+    vpc_id = aws_vpc.vpc.id
+    ingress {
+        from_port = 80
+        to_port = 80
+        protocol = "TCP"
+        cidr_blocks = ["0.0.0.0/0"]
+    }
+    egress {
+        from_port = 0
+        to_port = 0
+        protocol = "-1"
+        cidr_blocks = ["0.0.0.0/0"]
+    }
+    tags = {
+        Name = "${var.prefix}-elb-security-group"
+        instance = var.prefix
+    }
+}
+
 resource "aws_db_subnet_group" "db_subnet_group" {
     name = "${var.prefix}-db-subnet"
     subnet_ids = values(aws_subnet.subnet).*.id
@@ -232,7 +253,7 @@ resource "aws_instance" "instance" {
                 git clone https://github.com/rabrown1975/taneleer-ruby.git /usr/src/taneleer
                 
                 cat <<- EOFX > /usr/src/taneleer/config/database.yml
-                production:
+                development:
                     adapter: postgresql
                     encoding: unicode
                     username: ${var.db_username}
@@ -242,8 +263,10 @@ resource "aws_instance" "instance" {
                 EOFX
 
                 cd /usr/src/taneleer
+                bundle install
+                yarn install --check-files
+                /usr/src/taneleer/bin/rails db:migrate RAILS_ENV=development
                 chown -R taneleer:taneleer /usr/src/taneleer
-                sudo -u taneleer bundle install
                 
                 cat <<- EOFX > /etc/systemd/system/taneleer.service
                 [Unit]
@@ -254,7 +277,7 @@ resource "aws_instance" "instance" {
                 Type=simple
                 User=taneleer
                 WorkingDirectory=/usr/src/taneleer
-                ExecStart=rails server -e production
+                ExecStart=/usr/src/taneleer/bin/rails server -b 0.0.0.0 -p 3000
                 Restart=on-failure
                 [Install]
                 WantedBy=multi-user.target
@@ -277,6 +300,7 @@ resource "aws_elb" "elb" {
     name = "${var.prefix}-elb"
     #availability_zones = values(aws_subnet.subnet).*.availability_zone
     subnets = values(aws_subnet.subnet).*.id
+    security_groups = [aws_security_group.elb_security_group.id]
     listener {
         instance_port = 3000
         instance_protocol = "http"
