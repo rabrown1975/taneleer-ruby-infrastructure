@@ -1,28 +1,4 @@
-variable "region" {}
-variable "prefix" {}
-variable "ssh_key" {}
-variable "vpc_cidr" {}
-variable "subnet_cidrs" {
-    description = "The availablility zone and CIDR block for each subnet in the VPC."
-    type = map
-}
-variable "db_size" {}
-variable "db_storage" {}
-variable "db_storage_type" {}
-variable "db_engine" {}
-variable "db_engine_version" {}
-variable "db_name" {}
-variable "db_username" {}
-variable "db_password" {}
-variable "instance_size" {}
-variable "instance_storage" {}
-variable "instance_storage_type" {}
-variable "instance_ami" {}
 
-provider "aws" {
-    region = var.region
-    profile = "default"
-}
 
 resource "aws_key_pair" "key" {
     key_name = "${var.prefix}-key"
@@ -33,74 +9,9 @@ resource "aws_key_pair" "key" {
     }
 }
 
-resource "aws_vpc" "vpc" {
-    cidr_block = var.vpc_cidr
-    tags = {
-        Name = "${var.prefix}-vpc"
-        instance = var.prefix
-    }
-}
-
-resource "aws_internet_gateway" "igw" {
-    vpc_id = aws_vpc.vpc.id
-    tags = {
-        Name = "${var.prefix}-internet-gateway"
-        instance = var.prefix
-    }
-}
-
-resource "aws_route_table" "route_table" {
-    vpc_id = aws_vpc.vpc.id
-    route {
-        cidr_block = "0.0.0.0/0"
-        gateway_id = aws_internet_gateway.igw.id
-    }
-    tags = {
-        Name = "${var.prefix}-route-table"
-        instance = var.prefix
-    }
-}
-
-resource "aws_main_route_table_association" "rta" {
-    vpc_id = aws_vpc.vpc.id
-    route_table_id = aws_route_table.route_table.id
-}
-
-resource "aws_subnet" "subnet" {
-    for_each = var.subnet_cidrs
-    vpc_id = aws_vpc.vpc.id
-    cidr_block = each.value
-    availability_zone = "${var.region}${each.key}"
-    tags = {
-        Name = "${var.prefix}-subnet-${each.key}"
-        instance = var.prefix
-    }
-}
-
-resource "aws_security_group" "db_security_group" {
-    name = "${var.prefix}-db-security-group"
-    vpc_id = aws_vpc.vpc.id
-    ingress {
-        from_port = 5432
-        to_port = 5432
-        protocol = "tcp"
-        cidr_blocks = [var.vpc_cidr]
-    }
-    egress {
-        from_port = 0
-        to_port = 0
-        protocol = "-1"
-        cidr_blocks = ["0.0.0.0/0"]
-    }
-    tags = {
-        Name = "${var.prefix}-db-security-group"
-        instance = var.prefix
-    }
-}
-
 resource "aws_security_group" "instance_security_group" {
     name = "${var.prefix}-instance-security-group"
-    vpc_id = aws_vpc.vpc.id
+    vpc_id = var.vpc_id
     ingress {
         from_port = 0
         to_port = 0
@@ -127,7 +38,7 @@ resource "aws_security_group" "instance_security_group" {
 
 resource "aws_security_group" "elb_security_group" {
     name = "${var.prefix}-elb-security-group"
-    vpc_id = aws_vpc.vpc.id
+    vpc_id = var.vpc_id
     ingress {
         from_port = 80
         to_port = 80
@@ -146,35 +57,8 @@ resource "aws_security_group" "elb_security_group" {
     }
 }
 
-resource "aws_db_subnet_group" "db_subnet_group" {
-    name = "${var.prefix}-db-subnet"
-    subnet_ids = values(aws_subnet.subnet).*.id
-    tags = {
-        Name = "${var.prefix}-db-subnet"
-        instance = var.prefix
-    }
-}
-
-resource "aws_db_instance" "db_instance" {
-    skip_final_snapshot = true
-    allocated_storage = var.db_storage
-    storage_type = var.db_storage_type
-    engine = var.db_engine
-    engine_version = var.db_engine_version
-    instance_class = var.db_size
-    name = var.db_name
-    username = var.db_username
-    password = var.db_password
-    db_subnet_group_name = aws_db_subnet_group.db_subnet_group.name
-    vpc_security_group_ids = [aws_security_group.db_security_group.id]
-    tags = {
-        Name = "${var.prefix}-db-instance"
-        instance = var.prefix
-    }
-}
-
 resource "aws_instance" "instance" {
-    for_each = aws_subnet.subnet
+    for_each = var.subnets
     ami = var.instance_ami
     instance_type = var.instance_size
     availability_zone = "${var.region}${each.key}"
@@ -258,7 +142,7 @@ resource "aws_instance" "instance" {
                     encoding: unicode
                     username: ${var.db_username}
                     password: "${var.db_password}"
-                    host: "${aws_db_instance.db_instance.address}"
+                    host: "${var.db_host}"
                     database: ${var.db_name}
                 EOFX
 
@@ -292,14 +176,9 @@ resource "aws_instance" "instance" {
     }
 }
 
-# output "instance" {
-#     value = aws_instance.instance
-# }
-
 resource "aws_elb" "elb" {
     name = "${var.prefix}-elb"
-    #availability_zones = values(aws_subnet.subnet).*.availability_zone
-    subnets = values(aws_subnet.subnet).*.id
+    subnets = values(var.subnets).*.id
     security_groups = [aws_security_group.elb_security_group.id]
     listener {
         instance_port = 3000
@@ -319,8 +198,4 @@ resource "aws_elb" "elb" {
         Name = "${var.prefix}-elb"
         instance = var.prefix
     }
-}
-
-output "aws_elb" {
-    value = aws_elb.elb.dns_name
 }

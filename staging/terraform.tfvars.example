@@ -1,0 +1,25 @@
+region = "us-east-1"
+
+prefix = "tan-prd-1"
+
+ssh_key = "SET TO A VALID SSH PUBLIC KEY"
+
+vpc_cidr = "10.0.0.0/16"
+subnet_cidrs = {
+    c = "10.0.1.0/24"
+    d = "10.0.2.0/24"
+}
+
+db_size = "db.t2.micro"
+db_storage = "10"
+db_storage_type = "gp2"
+db_engine = "postgres"
+db_engine_version = "11"
+db_name = "taneleer"
+db_username = "postgres"
+db_password = "SET TO A SECURE PASSWORD"
+
+instance_size = "t2.micro"
+instance_storage = "10"
+instance_storage_type = "gp2"
+instance_ami = "ami-0817d428a6fb68645"
